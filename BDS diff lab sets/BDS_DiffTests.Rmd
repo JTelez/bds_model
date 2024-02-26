@@ -146,7 +146,7 @@ plot(roc.esge, main="ROC for ESGE high risk only")
 #####         cross-validated prediction
 cv = function(ftrain, fpredict, data, fold=5, verbose=FALSE) {
   shuff = sample(nrow(data)) / nrow(data)
-  ACCs=c(); AUCs = c()
+  ACCs=c(); AUCs = c(); AUCs_ci = c()
   pred = rep(NA, nrow(data))
   ercp = rep(NA, nrow(data))
   for(i in 1:fold) {
@@ -157,19 +157,21 @@ cv = function(ftrain, fpredict, data, fold=5, verbose=FALSE) {
     pred[ind] = pred_i
     acc_i = mean(as.numeric(pred_i>0.5) == test_data$BDS)
     auc_i = roc(test_data$BDS, pred_i)$auc
+    auc_ci_i = roc(test_data$BDS, pred_i, ci=TRUE)$ci
     
     thresh_i = quantile(pred_i, 620/1378)
     ercp[ind] = pred_i > thresh_i
     
     ACCs = c(ACCs, acc_i)
     AUCs = c(AUCs, auc_i)
+    AUCs_ci = c(AUCs_ci, auc_ci_i)
   }
   if(verbose){
     cat(sprintf("Mean Accuracy: %f for %d fold cross validation \n", mean(acc), fold))
     cat(sprintf("Mean AUC: %f for %d fold cross validation \n", mean(AUCs), fold))  
   }
   
-  list(accuracy = ACCs, AUC = AUCs, prediction = pred, 
+  list(accuracy = ACCs, AUC = AUCs, AUC_ci = AUCs_ci, prediction = pred, 
        cfm = table(ERCP=ercp, Stone=data$BDS))
 }
 
@@ -190,7 +192,10 @@ ntimes = function(iter, train, pred, data){
   # hist(res)
   ind = which.min(abs(res - median(res)))
   pred_ind = preds[ind,]
-  print(roc(data$BDS, pred_ind)$auc); print(median(res))
+  print(roc(data$BDS, pred_ind)$auc)
+  print(roc(data$BDS, pred_ind, ci=TRUE)$ci)
+  print(median(res))
+  print(cv.s)
   plot(roc(data$BDS, pred_ind), main="Median Case ROC")
   
   print(c(ERCP_Yes_Stone_Yes_mean=mean(ERCP_Yes_Stone_Yes),
@@ -199,12 +204,6 @@ ntimes = function(iter, train, pred, data){
           quantile(ERCP_Yes_Stone_No, c(0.025, 0.975))))
   print(c(ERCP_No_Stone_Yes_mean=mean(ERCP_No_Stone_Yes),
           quantile(ERCP_No_Stone_Yes, c(0.025, 0.975))))
-  
-  print(median(ERCP_Yes_Stone_Yes))
-  print(median(ERCP_Yes_Stone_No))
-  print(median(ERCP_No_Stone_Yes))
-  
-  print(cfm)
   
   print(c(mean = mean(res), std = sqrt(var(res)),
           quantile(res, c(0.025,0.975))))
