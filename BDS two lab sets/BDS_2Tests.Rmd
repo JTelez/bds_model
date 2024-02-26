@@ -1,0 +1,428 @@
+---
+title: "BDS"
+author: "Bohao Tang, Jeremy Telezing"
+date: "11/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Users/Jeremy Telezing/Documents/Johns Hopkins University/Research/Bile Duct Stone Study")
+#knitr::opts_chunk$set(echo = T, results = "hide", error = FALSE, warning = FALSE)
+```
+
+# Data preparation
+```{r, message=FALSE, warning=FALSE, error=FALSE, results = "hide"}
+library(readxl)
+library(tidyverse)
+library(pROC)
+library(randomForest)
+library(rpart)
+library(mice)
+# library(missForest)
+
+set.seed(111)
+
+chole.raw <- read_excel("Datasheet_SS_ESGE_added_updated_2Tests.xlsx",
+                        sheet = 1, col_types = c(rep("numeric", 2), rep("logical", 2),
+                                                 rep("numeric", 8), rep("logical", 7)))
+
+namelist = colnames(chole.raw)
+colnames(chole.raw) = make.names(namelist)
+chole.raw$BDS[is.na(chole.raw$BDS)] = FALSE
+chole.raw$Ascending_cholangitis[is.na(chole.raw$Ascending_cholangitis)] = FALSE
+chole.raw$US_BDS[is.na(chole.raw$US_BDS)] = FALSE
+chole.raw$US_CBD.6mm[is.na(chole.raw$US_CBD.6mm)] = FALSE
+chole.raw$Acute_pancreatitis[is.na(chole.raw$Acute_pancreatitis)] = FALSE
+chole.raw = dplyr::select(chole.raw,-Gender_M.1,-ERCP)
+
+mind = as.logical(apply(as.matrix(is.na(chole.raw[4:11])), 1, prod))
+
+table(apply(as.matrix(is.na(chole.raw[5:12])), 1, sum))
+sapply(chole.raw, function(s){sum(is.na(s))})
+
+chole.sub = chole.raw[!is.na(chole.raw$Age), 1:11]
+chole.sub$Age[chole.sub$Age < 0] = NA
+
+# imp = as.data.frame(missForest(as.matrix(chole.sub), ntree=200)$ximp)
+# imp$US_BDS = as.logical(imp$US_BDS)
+# imp$US_CBD.6mm = as.logical(imp$US_CBD.6mm)
+
+imp2 = complete(mice(chole.sub, maxit=20), 1)
+
+# chole.rf = mutate(chole.raw)
+# chole.rf[!is.na(chole.rf$Age), 1:11] = imp
+
+chole.mice = mutate(chole.raw)
+chole.mice[!is.na(chole.mice$Age), 1:11] = imp2
+
+chole.omit = na.omit(chole.raw[!is.na(chole.raw$Age) & !chole.raw$Ascending_cholangitis,])
+chole.omit = rbind(chole.raw[is.na(chole.raw$Age) | chole.raw$Ascending_cholangitis,], chole.omit)
+
+## Avoid Ascending_cholangitis
+# chole.rf = chole.rf %>% dplyr::filter(!Ascending_cholangitis)
+chole.mice = chole.mice %>% dplyr::filter(!Ascending_cholangitis)
+chole.omit = chole.omit %>% dplyr::filter(!Ascending_cholangitis)
+
+chole.ascend = chole.raw %>% dplyr::filter(Ascending_cholangitis)
+
+# sapply(chole.rf, function(s){sum(is.na(s))})
+sapply(chole.mice, function(s){sum(is.na(s))})
+sapply(chole.omit, function(s){sum(is.na(s))})
+```
+
+
+# Guidelines
+```{r}
+### Using only ASGE.high.risk.category to predict the BDS
+
+prediction.asge = as.numeric(chole.raw$ASGE.high.risk.category)
+
+acc.asge = mean(prediction.asge == chole.raw$BDS)
+print(acc.asge)
+
+asge.sensitivity = sum(chole.raw$BDS[prediction.asge == 1]) / sum(chole.raw$BDS)
+print(asge.sensitivity)
+
+asge.specificity = sum(1-chole.raw$BDS[prediction.asge == 0]) / sum(1-chole.raw$BDS)
+print(asge.specificity)
+
+roc.asge = roc(as.numeric(chole.raw$BDS), prediction.asge)
+print(roc.asge$auc)
+
+print(table(ERCP=chole.raw$ASGE.high.risk.category, Stone=chole.raw$BDS))
+
+plot(roc.asge, main="ROC for ASGE high risk only")
+```
+
+```{r}
+### Using only Updated.ASGE.high.risk.category to predict the BDS
+
+prediction.uasge = as.numeric(chole.raw$Updated.ASGE.high.risk.category)
+
+acc.uasge = mean(prediction.uasge == chole.raw$BDS)
+print(acc.uasge)
+
+uasge.sensitivity = sum(chole.raw$BDS[prediction.uasge == 1]) / sum(chole.raw$BDS)
+print(uasge.sensitivity)
+
+uasge.specificity = sum(1-chole.raw$BDS[prediction.uasge == 0]) / sum(1-chole.raw$BDS)
+print(uasge.specificity)
+
+roc.uasge = roc(as.numeric(chole.raw$BDS), prediction.uasge)
+print(roc.uasge$auc)
+
+print(table(ERCP=chole.raw$Updated.ASGE.high.risk.category, Stone=chole.raw$BDS))
+
+plot(roc.uasge, main="ROC for Updated ASGE high risk only")
+```
+
+```{r}
+### Using only ESGE.high.risk to predict the BDS
+
+prediction.esge = as.numeric(chole.raw$ESGE.high.risk)
+
+acc.esge = mean(prediction.esge == chole.raw$BDS)
+print(acc.esge)
+
+esge.sensitivity = sum(chole.raw$BDS[prediction.esge == 1]) / sum(chole.raw$BDS)
+print(esge.sensitivity)
+
+esge.specificity = sum(1-chole.raw$BDS[prediction.esge == 0]) / sum(1-chole.raw$BDS)
+print(esge.specificity)
+
+roc.esge = roc(as.numeric(chole.raw$BDS), prediction.esge)
+print(roc.esge$auc)
+
+print(table(ERCP=chole.raw$ESGE.high.risk, Stone=chole.raw$BDS))
+
+plot(roc.esge, main="ROC for ESGE high risk only")
+```
+
+# Cross validation procedure
+```{r}
+### Utility function for cross validation
+##### Output: mean accuracy, mean AUC, 
+#####         cross-validated prediction
+cv = function(ftrain, fpredict, data, fold=5, verbose=FALSE) {
+  shuff = sample(nrow(data)) / nrow(data)
+  ACCs=c(); AUCs = c(); AUCs_ci = c()
+  pred = rep(NA, nrow(data))
+  ercp = rep(NA, nrow(data))
+  for(i in 1:fold) {
+    ind = (shuff <= i/fold) & (shuff > (i-1)/fold)
+    train_data = data[!ind,]; test_data = data[ind,]
+    model_i = ftrain(train_data)
+    pred_i = fpredict(model_i, test_data)
+    pred[ind] = pred_i
+    acc_i = mean(as.numeric(pred_i>0.5) == test_data$BDS)
+    auc_i = roc(test_data$BDS, pred_i)$auc
+    auc_ci_i = roc(test_data$BDS, pred_i, ci=TRUE)$ci
+    
+    thresh_i = quantile(pred_i, 620/1378)
+    ercp[ind] = pred_i > thresh_i
+    
+    ACCs = c(ACCs, acc_i)
+    AUCs = c(AUCs, auc_i)
+    AUCs_ci = c(AUCs_ci, auc_ci_i)
+  }
+  if(verbose){
+    cat(sprintf("Mean Accuracy: %f for %d fold cross validation \n", mean(acc), fold))
+    cat(sprintf("Mean AUC: %f for %d fold cross validation \n", mean(AUCs), fold))  
+  }
+  
+  list(accuracy = ACCs, AUC = AUCs, AUC_ci = AUCs_ci, prediction = pred, 
+       cfm = table(ERCP=ercp, Stone=data$BDS))
+}
+
+ntimes = function(iter, train, pred, data){
+  res = c(); preds = c()
+  ERCP_Yes_Stone_Yes = c()
+  ERCP_Yes_Stone_No = c()
+  ERCP_No_Stone_Yes = c()
+  for(i in 1:iter){
+    cv.s = cv(train, pred, data)
+    res = c(res, mean(cv.s$AUC))
+    preds = rbind(preds, cv.s$prediction)
+    cfm = cv.s$cfm # + rbind(0, table(chole.ascend$BDS))
+    ERCP_Yes_Stone_Yes[i] = cfm[2,2]
+    ERCP_Yes_Stone_No[i] = cfm[2,1]
+    ERCP_No_Stone_Yes[i] = cfm[1,2]
+  }
+  # hist(res)
+  ind = which.min(abs(res - median(res)))
+  pred_ind = preds[ind,]
+  print(roc(data$BDS, pred_ind)$auc)
+  print(roc(data$BDS, pred_ind, ci=TRUE)$ci)
+  print(median(res))
+  print(cv.s)
+  plot(roc(data$BDS, pred_ind), main="Median Case ROC")
+  
+  print(c(ERCP_Yes_Stone_Yes_mean=mean(ERCP_Yes_Stone_Yes),
+          quantile(ERCP_Yes_Stone_Yes, c(0.025, 0.975))))
+  print(c(ERCP_Yes_Stone_No_mean=mean(ERCP_Yes_Stone_No),
+          quantile(ERCP_Yes_Stone_No, c(0.025, 0.975))))
+  print(c(ERCP_No_Stone_Yes_mean=mean(ERCP_No_Stone_Yes),
+          quantile(ERCP_No_Stone_Yes, c(0.025, 0.975))))
+  
+  print(c(mean = mean(res), std = sqrt(var(res)),
+          quantile(res, c(0.025,0.975))))
+  list(prediction = pred_ind, roc = roc(data$BDS, pred_ind), auc = median(res))
+}
+```
+
+# Models
+### Logistic Regression
+```{r, message=FALSE, warning=FALSE, error=FALSE}
+train.glm = function(data){
+  tdata = mutate(data)
+  # tdata = data %>% dplyr::filter(!Ascending_cholangitis)
+  # tdata = na.omit(tdata)[c(1:12,14,19)]
+  tdata = na.omit(tdata)[c(1:11,13,16)]
+  glm(BDS ~ ., family = "binomial", data = tdata)
+}
+pred.glm = function(model, data){
+  pred = rep(0, nrow(data))
+  data_sub = data[!is.na(data$Age),]
+  pred_sub = predict(model, data_sub, type = "response")
+  pred[!is.na(data$Age)] = pred_sub
+  # pred[data$Ascending_cholangitis] = 1
+  pred
+}
+
+set.seed(111)
+
+res.glm = ntimes(200, train.glm, pred.glm, chole.mice)
+```
+
+### Random forest
+```{r, eval=FALSE}
+train.rf = function(data){
+  tdata = mutate(data)
+  # tdata = data %>% dplyr::filter(!Ascending_cholangitis)
+  tdata = na.omit(tdata)[c(1:11,13,16)]
+  randomForest(factor(BDS) ~ ., tdata, ntree = 1000, mtry=2)
+}
+pred.rf = function(model, data){
+  pred = rep(0, nrow(data))
+  data_sub = data[!is.na(data$Age),]
+  pred_sub = predict(model, data_sub, type="prob")[,2]
+  pred[!is.na(data$Age)] = pred_sub
+  # pred[data$Ascending_cholangitis] = 0.608
+  pred
+}
+
+set.seed(111)
+
+res.rf = ntimes(200, train.rf, pred.rf, chole.mice)
+```
+
+### Gradient boost
+```{r, message=FALSE, warning=FALSE, error=FALSE}
+# library(xgboost)
+library(gbm)
+
+train.gb = function(data, ...){
+  tdata = mutate(data)
+  # tdata = data %>% dplyr::filter(!Ascending_cholangitis)
+  tdata = na.omit(tdata)[c(1:11,13,16)]
+  tdata$US_BDS = as.numeric(tdata$US_BDS)
+  tdata$US_CBD.6mm = as.numeric(tdata$US_CBD.6mm)
+  tdata$Acute_pancreatitis = as.numeric(tdata$Acute_pancreatitis)
+  gbm(BDS~., distribution = "bernoulli", tdata, n.trees = 100, shrinkage = 0.01, 
+      interaction.depth = 3, n.minobsinnode = 10, ...)
+}
+pred.gb = function(model, data){
+  pred = rep(0, nrow(data))
+  data_sub = data[!is.na(data$Age),]
+  data_sub$US_BDS = as.numeric(data_sub$US_BDS)
+  data_sub$US_CBD.6mm = as.numeric(data_sub$US_CBD.6mm)
+  data_sub$Acute_pancreatitis = as.numeric(data_sub$Acute_pancreatitis)
+  pred_sub = predict(model, data_sub, 100, type="response")
+  pred[!is.na(data$Age)] = pred_sub
+  # pred[data$Ascending_cholangitis] = 0.608
+  pred
+}
+
+vimp = summary(train.gb(chole.mice))
+
+data.frame(var = factor(vimp[,1],levels=rev(vimp[,1])),
+           rel.inf = vimp[,2]) %>% 
+  ggplot(aes(x=var, y=rel.inf, fill=rel.inf^0.4)) + 
+  geom_bar(stat = "identity") + coord_flip() +
+  xlab("Variable") + ylab("Importance") + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.major = element_blank())
+
+set.seed(111)
+
+res.gbm = ntimes(200, train.gb, pred.gb, chole.mice)
+
+```
+
+### Plots
+```{r, message=FALSE, warning=FALSE, error=FALSE}
+ss = function(threshs, sensitivity, specificity){
+  sen=c(); spe=c()
+  for (th in threshs) {
+    if(th <= 0.5){
+      sen = c(sen, 2*th*sensitivity+(1-2*th)*1)
+      spe = c(spe, 2*th*specificity+(1-2*th)*0)
+    }
+    else{
+      sen = c(sen, (2-2*th)*sensitivity+(2*th-1)*0)
+      spe = c(spe, (2-2*th)*specificity+(2*th-1)*1)
+    }
+  }
+  list(sen, spe)
+}
+
+ss.model = function(thresh, pred, label) {
+  sen=c();spe=c()
+  for (th in thresh) {
+    sensitivity = sum(label[pred > th]) / sum(label)
+    specificity = sum(1-label[pred < th]) / sum(1-label)
+    sen = c(sen, sensitivity)
+    spe = c(spe, specificity)
+  }
+  list(sen,spe)
+}
+
+roc.data <- function(res){
+  fit.model = ss.model(seq(0,1,length.out = 1000), res$prediction, chole.mice$BDS)
+  list(fit = fit.model, AUC = res$auc)
+}
+
+fit.asge = ss(seq(0,1,length.out = 1000), asge.sensitivity, asge.specificity)
+fit.uasge = ss(seq(0,1,length.out = 1000), uasge.sensitivity, uasge.specificity)
+fit.esge = ss(seq(0,1,length.out = 1000), esge.sensitivity, esge.specificity)
+
+#glm.roc = roc.data(res.glm)
+#rf.roc = roc.data(res.rf)
+gbm.roc = roc.data(res.gbm)
+
+# auc_df = data.frame(method=c("Logistic Regresion", "Random Forest",
+#                              "Gradient Boosting", "ASGE Guideline",
+#                              "Updated ASGE Guideline", "ESGE Guideline"),
+#                     auc = paste(c("Logistic Regresion:", "Random Forest:",
+#                                   "Gradient Boosting:", "ASGE Guideline:",
+#                                   "Updated Guideline:", "ESGE Guideline:"),
+#                                 c(round(glm.roc$AUC,3), round(rf.roc$AUC,3),
+#                                   round(gbm.roc$AUC,3), 0.626, 0.623, 0.666)),
+#                     x = 0.28, y = seq(0.38,0.02,length.out=6))
+
+auc_df = data.frame(method=c("Gradient Boosting", "ASGE Guideline",
+                             "Updated ASGE Guideline", "ESGE Guideline"),
+                    auc = paste(c("Gradient Boosting:", "ASGE Guideline:",
+                                  "Updated Guideline:", "ESGE Guideline:"),
+                                c(round(gbm.roc$AUC,3), 0.626, 0.623, 0.666)),
+                    x = 0.28, y = seq(0.38,0.1,length.out=4))
+
+# p1 =
+# rbind(data.frame(method="Logistic Regresion",
+#                  specificity=c(glm.roc$fit[[2]],1,0),
+#                  sensitivity=c(glm.roc$fit[[1]],0,1)),
+#       data.frame(method="Random Forest",
+#                  specificity=c(rf.roc$fit[[2]],1,0),
+#                  sensitivity=c(rf.roc$fit[[1]],0,1)),
+#       data.frame(method="Gradient Boosting",
+#                  specificity=c(gbm.roc$fit[[2]],1,0),
+#                  sensitivity=c(gbm.roc$fit[[1]],0,1)),
+#       data.frame(method="ASGE Guideline",
+#                  specificity=c(fit.asge[[2]],1,0),
+#                  sensitivity=c(fit.asge[[1]],0,1)),
+#       data.frame(method="Updated ASGE Guideline",
+#                  specificity=c(fit.uasge[[2]],1,0),
+#                  sensitivity=c(fit.uasge[[1]],0,1)),
+#       data.frame(method="ESGE Guideline", 
+#                  specificity=c(fit.esge[[2]],1,0), 
+#                  sensitivity=c(fit.esge[[1]],0,1))) %>%
+#   group_by(specificity, method) %>% summarise(sensitivity=median(sensitivity)) %>%
+#   ggplot(aes(x=specificity, y=sensitivity, col=method, fill=method)) +
+#   geom_step(position = "identity", direction = "vh", size = 0.7) +
+#   geom_label(data=auc_df, aes(x = x, y = y, label = auc),
+#              alpha=0.5, color="black", hjust = 0, size = 4) +
+#   annotate("text", x = 0.28, y = 0.45, label = "AUC:", hjust = 0, size=5) +
+#   geom_abline(slope = 1, intercept = 1, alpha=0.3) +
+#   ylim(c(0,1)) + ggtitle("ROC plots for different models") +
+#   scale_x_reverse(lim=c(1,0)) +
+#   theme_bw(base_size = 12) +
+#   theme(plot.title = element_text(hjust = 0.5),
+#         legend.position = "none",
+#         panel.grid.major = element_blank())
+
+p1 =
+rbind(data.frame(method="Gradient Boosting",
+                 specificity=c(gbm.roc$fit[[2]],1,0),
+                 sensitivity=c(gbm.roc$fit[[1]],0,1)),
+      data.frame(method="ASGE Guideline",
+                 specificity=c(fit.asge[[2]],1,0),
+                 sensitivity=c(fit.asge[[1]],0,1)),
+      data.frame(method="Updated ASGE Guideline",
+                 specificity=c(fit.uasge[[2]],1,0),
+                 sensitivity=c(fit.uasge[[1]],0,1)),
+      data.frame(method="ESGE Guideline", 
+                 specificity=c(fit.esge[[2]],1,0), 
+                 sensitivity=c(fit.esge[[1]],0,1))) %>%
+  group_by(specificity, method) %>% summarise(sensitivity=median(sensitivity)) %>%
+  ggplot(aes(x=specificity, y=sensitivity, col=method, fill=method)) +
+  geom_step(position = "identity", direction = "vh", size = 0.7) +
+  geom_label(data=auc_df, aes(x = x, y = y, label = auc),
+             alpha=0.5, color="black", hjust = 0, size = 4) +
+  annotate("text", x = 0.28, y = 0.45, label = "AUC:", hjust = 0, size=5) +
+  geom_abline(slope = 1, intercept = 1, alpha=0.3) +
+  ylim(c(0,1)) + ggtitle("ROC plots for different models") +
+  scale_x_reverse(lim=c(1,0)) +
+  theme_bw(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "none",
+        panel.grid.major = element_blank())
+
+p1
+```
+
+```{r, eval=FALSE}
+#ggsave("ROCs.png", p1, width = 8, height = 6)
+ggsave("ROCs_2Tests.tiff", p1, width = 8, height = 6, compression = "lzw")
+```
